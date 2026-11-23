@@ -6,7 +6,8 @@ if ($existing) {
     throw "Port $previewPort is already in use. Stop the preview service that owns it, then retry. The installed service on port 18080 is not touched."
 }
 
-$binary = Join-Path $PSScriptRoot "duck2api.exe"
+$packageRoot = Split-Path -Parent $PSScriptRoot
+$binary = Join-Path $packageRoot "duck2api.exe"
 if (-not (Test-Path $binary)) {
     throw "duck2api.exe was not found beside this script."
 }
@@ -20,7 +21,7 @@ if ([string]::IsNullOrWhiteSpace($env:MCP_MAX_TOOL_CALLS)) {
     $env:MCP_MAX_TOOL_CALLS = "64"
 }
 
-Push-Location $PSScriptRoot
+Push-Location $packageRoot
 try {
     Write-Host "Starting isolated Duck2API MCP preview on http://127.0.0.1:$previewPort"
     Write-Host "The existing service on port 18080 is not modified."
