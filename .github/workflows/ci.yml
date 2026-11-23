@@ -27,6 +27,9 @@ jobs:
       - name: Download modules
         run: go mod download
 
+      - name: Export resolved checksums for dependency review
+        run: cat go.sum
+
       - name: Test
         run: go test -mod=mod ./...
 
