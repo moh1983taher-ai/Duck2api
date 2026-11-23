@@ -54,6 +54,7 @@ func (h *Handler) runResponsesWithMCP(c *gin.Context, initial officialtypes.APIR
 	maxToolCalls := bridge.MaxToolCalls()
 	toolCalls := 0
 	requiredRetries := 0
+	formatRetries := 0
 	forceFinalOnly := false
 	var finalText string
 	var model string
@@ -106,8 +107,17 @@ func (h *Handler) runResponsesWithMCP(c *gin.Context, initial officialtypes.APIR
 
 		directive, err := mcpbridge.ParseDirective(result.Text)
 		if err != nil {
-			return officialtypes.ResponseAPI{}, fmt.Errorf("model returned an invalid MCP control block: %w", err)
+			formatRetries++
+			if formatRetries > 1 {
+				return officialtypes.ResponseAPI{}, fmt.Errorf("model repeatedly returned an invalid MCP control block: %w", err)
+			}
+			messages = append(messages,
+				officialtypes.ApiMessage{Role: "assistant", Content: result.Text},
+				officialtypes.ApiMessage{Role: "user", Content: "Your previous control block was malformed: " + err.Error() + ". Try again. Output exactly one complete <mcp_call>{...}</mcp_call> block containing one valid JSON object and no second call. Do not add any explanation inside the block. Use only the registered server and tool names and their schemas."},
+			)
+			continue
 		}
+		formatRetries = 0
 		// Record only protocol metadata; never log model text or research content.
 		log.Printf("[MCP] model_directive=%q required=%t completed_calls=%d",
 			directive.Kind, policy.Required, toolCalls)
