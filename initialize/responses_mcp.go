@@ -19,12 +19,18 @@ import (
 
 func (h *Handler) runResponsesWithMCP(c *gin.Context, initial officialtypes.APIRequest, bridge *mcpbridge.Bridge, policy mcpbridge.ToolChoicePolicy) (officialtypes.ResponseAPI, error) {
 	overallStart := time.Now()
-	messages := make([]officialtypes.ApiMessage, 0, len(initial.Messages)+3)
-	messages = append(messages, officialtypes.ApiMessage{
-		Role:    "system",
-		Content: mcpbridge.BuildPrompt(bridge.Descriptors(), policy),
-	})
-	messages = append(messages, initial.Messages...)
+	// Duck.ai exposes user/assistant messages rather than a privileged system
+	// role. Merge system instructions and the MCP protocol into the actual task
+	// message so they are not downgraded to a separate user turn.
+	if strings.TrimSpace(initial.ReasoningEffort) == "" {
+		// Agentic tool selection benefits from Duck.ai's reasoning mode. Explicit
+		// caller settings, including "none", remain respected.
+		initial.ReasoningEffort = "low"
+	}
+	messages := prepareMCPMessages(
+		initial.Messages,
+		mcpbridge.BuildPrompt(bridge.Descriptors(), policy),
+	)
 
 	outputItems := make([]officialtypes.ResponseOutput, 0, len(bridge.Descriptors())+4)
 	for _, server := range bridge.Descriptors() {
@@ -102,6 +108,9 @@ func (h *Handler) runResponsesWithMCP(c *gin.Context, initial officialtypes.APIR
 		if err != nil {
 			return officialtypes.ResponseAPI{}, fmt.Errorf("model returned an invalid MCP control block: %w", err)
 		}
+		// Record only protocol metadata; never log model text or research content.
+		log.Printf("[MCP] model_directive=%q required=%t completed_calls=%d",
+			directive.Kind, policy.Required, toolCalls)
 		if directive.Kind == "final" {
 			if policy.Required && toolCalls == 0 {
 				requiredRetries++
@@ -110,7 +119,7 @@ func (h *Handler) runResponsesWithMCP(c *gin.Context, initial officialtypes.APIR
 				}
 				messages = append(messages,
 					officialtypes.ApiMessage{Role: "assistant", Content: directive.Raw},
-					officialtypes.ApiMessage{Role: "user", Content: "tool_choice is required: call at least one permitted MCP tool before providing the final answer."},
+					officialtypes.ApiMessage{Role: "user", Content: "Your previous response did not contain a valid tool call. This request requires an MCP call. Do not answer or explain yet. Immediately output exactly one call block using a permitted server, its exact tool name, and its input schema, in this form: <mcp_call>{\"server_label\":\"aljam3\",\"tool_name\":\"search\",\"arguments\":{}}</mcp_call>. Choose the appropriate permitted tool yourself; do not copy example arguments unless they fit the schema."},
 				)
 				continue
 			}
@@ -177,7 +186,7 @@ tool_name=%s
 status=%s
 output=%s
 
-قيّم هذه النتيجة، ثم قرر بنفسك هل تحتاج إلى استدعاء آخر أم أن البحث اكتمل.`,
+قيّم هذه النتيجة، ثم قرر بنفسك هل تحتاج إلى استدعاء آخر أم اكتمل البحث. في الرد التالي أخرج كتلة تحكم واحدة فقط: <mcp_call> لاستدعاء أداة أخرى، أو <mcp_final> للإجابة النهائية. لا تكتب أي مقدمة خارج الكتلة.`,
 					invocation.ServerLabel,
 					invocation.ToolName,
 					invocation.Status,
