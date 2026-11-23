@@ -21,12 +21,8 @@ func (h *Handler) runResponsesWithMCP(c *gin.Context, initial officialtypes.APIR
 	overallStart := time.Now()
 	// Duck.ai exposes user/assistant messages rather than a privileged system
 	// role. Merge system instructions and the MCP protocol into the actual task
-	// message so they are not downgraded to a separate user turn.
-	if strings.TrimSpace(initial.ReasoningEffort) == "" {
-		// Agentic tool selection benefits from Duck.ai's reasoning mode. Explicit
-		// caller settings, including "none", remain respected.
-		initial.ReasoningEffort = "low"
-	}
+	// message so they are not downgraded to a separate user turn. Preserve the
+	// caller's reasoning setting; the normal request converter owns its default.
 	messages := prepareMCPMessages(
 		initial.Messages,
 		mcpbridge.BuildPrompt(bridge.Descriptors(), policy),
@@ -76,10 +72,16 @@ func (h *Handler) runResponsesWithMCP(c *gin.Context, initial officialtypes.APIR
 		totalCachedTokens += cacheRead
 
 		turnStart := time.Now()
+		log.Printf("[MCP] turn=%d phase=model_request input_tokens=%d effort=%q completed_calls=%d",
+			turn+1, inputTokens, initial.ReasoningEffort, toolCalls)
 		translatedRequest, response, err := h.startDuckDuckGoRequest(turnRequest)
 		if err != nil {
+			log.Printf("[MCP] turn=%d phase=model_request transport_error_type=%T elapsed_ms=%d",
+				turn+1, err, time.Since(turnStart).Milliseconds())
 			return officialtypes.ResponseAPI{}, fmt.Errorf("Duck.ai request failed during MCP orchestration: %w", err)
 		}
+		log.Printf("[MCP] turn=%d phase=model_response status=%d elapsed_ms=%d",
+			turn+1, response.StatusCode, time.Since(turnStart).Milliseconds())
 		if response.StatusCode != http.StatusOK {
 			upstreamErr := duckgo.ReadResponseError(response)
 			return officialtypes.ResponseAPI{}, fmt.Errorf("Duck.ai upstream returned %s: %w", response.Status, upstreamErr)
