@@ -83,17 +83,21 @@ func POSTconversation(client httpclient.AuroraHttpClient, request duckgotypes.Ap
 		client.SetProxy(proxyUrl)
 	}
 
-	maxRetries := 3
 	var response *http.Response
 	var err error
+	vqdRefreshes := 0
 
-	for i := 0; i <= maxRetries; i++ {
+	for {
 		response, err = postConversationOnce(client, request, token)
 		if err != nil {
 			return nil, err
 		}
 
-		if response.StatusCode != http.StatusTeapot && response.StatusCode != http.StatusTooManyRequests {
+		// HTTP 429 is an upstream rate-limit response, not evidence of an
+		// expired VQD token. Return it immediately instead of amplifying the
+		// limit with repeated requests. HTTP 418 may indicate a stale VQD;
+		// refresh once, then surface any subsequent response unchanged.
+		if response.StatusCode != http.StatusTeapot || vqdRefreshes >= 1 {
 			return response, nil
 		}
 
@@ -103,9 +107,8 @@ func POSTconversation(client httpclient.AuroraHttpClient, request duckgotypes.Ap
 		if err != nil {
 			return nil, err
 		}
+		vqdRefreshes++
 	}
-
-	return response, nil
 }
 
 func Handle_request_error(c *gin.Context, response *http.Response) bool {
