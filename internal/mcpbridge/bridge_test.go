@@ -86,3 +86,18 @@ func TestIntersectToolsOnlyReturnsConfiguredAllowList(t *testing.T) {
 		t.Fatalf("unexpected tool intersection: %#v", got)
 	}
 }
+
+func TestExplicitEmptyAllowedToolsDisablesAllTools(t *testing.T) {
+	requested := make([]string, 0)
+	got := intersectTools([]string{"search", "fetch"}, requested)
+	if len(got) != 0 {
+		t.Fatalf("an explicit empty allowed_tools list must not grant access: %#v", got)
+	}
+}
+
+func TestOmittedAllowedToolsUsesRegistryAllowList(t *testing.T) {
+	got := intersectTools([]string{"search", "fetch"}, nil)
+	if len(got) != 2 || got[0] != "search" || got[1] != "fetch" {
+		t.Fatalf("omitted allowed_tools should preserve configured tools: %#v", got)
+	}
+}

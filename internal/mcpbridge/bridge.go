@@ -259,8 +259,9 @@ func parseAllowedTools(raw any) ([]string, error) {
 	var values []string
 	switch list := raw.(type) {
 	case []string:
-		values = append(values, list...)
+		values = append(make([]string, 0, len(list)), list...)
 	case []any:
+		values = make([]string, 0, len(list))
 		for _, item := range list {
 			switch value := item.(type) {
 			case string:
@@ -349,7 +350,7 @@ func intersectTools(configured, requested []string) []string {
 	for _, name := range configured {
 		allowed[name] = true
 	}
-	if len(requested) == 0 {
+	if requested == nil {
 		return uniqueStrings(configured)
 	}
 	var result []string
