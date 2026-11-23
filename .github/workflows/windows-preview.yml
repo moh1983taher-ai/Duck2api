@@ -1,0 +1,57 @@
+name: Windows Preview Build
+
+on:
+  push:
+    branches:
+      - "feature/responses-remote-mcp"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-preview:
+    runs-on: windows-latest
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Test
+        run: go test -mod=mod ./...
+
+      - name: Vet
+        run: go vet -mod=mod ./...
+
+      - name: Build Windows executable
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          go build -mod=mod -trimpath -ldflags="-s -w" -o dist/duck2api.exe .
+
+      - name: Package preview scripts and configuration
+        shell: pwsh
+        run: |
+          Copy-Item README.md dist/README.md
+          Copy-Item env.template dist/env.template
+          New-Item -ItemType Directory -Force dist/scripts | Out-Null
+          Copy-Item scripts/Run-MCP-Preview.ps1 dist/scripts/Run-MCP-Preview.ps1
+          Copy-Item scripts/Test-MCP-Preview.ps1 dist/scripts/Test-MCP-Preview.ps1
+          Compress-Archive -Path dist/* -DestinationPath duck2api-mcp-preview-windows-amd64.zip -Force
+
+      - name: Upload Windows preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: duck2api-mcp-preview-windows-amd64
+          path: duck2api-mcp-preview-windows-amd64.zip
+          retention-days: 14

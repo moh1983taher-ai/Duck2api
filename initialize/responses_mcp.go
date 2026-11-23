@@ -3,6 +3,7 @@ package initialize
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -148,6 +149,12 @@ func (h *Handler) runResponsesWithMCP(c *gin.Context, initial officialtypes.APIR
 				Output:      errorOutput,
 			}
 		}
+		log.Printf("[MCP] server=%q tool=%q status=%q result_bytes=%d",
+			invocation.ServerLabel,
+			invocation.ToolName,
+			invocation.Status,
+			len(invocation.Output),
+		)
 		toolCalls++
 		outputItems = append(outputItems, officialtypes.ResponseOutput{
 			ID:          "mcp_call_" + uuid.NewString(),
