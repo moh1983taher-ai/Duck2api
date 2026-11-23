@@ -179,6 +179,57 @@ func (h *Handler) responses(c *gin.Context) {
 	chatRequest := responseRequest.ToChatCompletionRequest()
 	chatRequest.ReasoningEffort = effort
 
+	policy := mcpbridge.ParseToolChoice(responseRequest.ToolChoice)
+	var bridge *mcpbridge.Bridge
+	var mcpEnabled bool
+	var mcpErr error
+	if !policy.Disabled {
+		bridge, mcpEnabled, mcpErr = mcpbridge.Open(c.Request.Context(), responseRequest.Tools)
+	}
+	if mcpEnabled {
+		if mcpErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{
+				"message": mcpErr.Error(),
+				"type":    "invalid_request_error",
+				"param":   "tools",
+			}})
+			return
+		}
+		defer bridge.Close()
+		if policy.ServerLabel != "" && !bridge.HasTool(policy.ServerLabel, policy.ToolName) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{
+				"message": fmt.Sprintf("tool_choice references unavailable or disallowed MCP tool %s/%s", policy.ServerLabel, policy.ToolName),
+				"type":    "invalid_request_error",
+				"param":   "tool_choice",
+			}})
+			return
+		}
+
+		inputTokens := util.CountMessagesTokens(chatRequest.Messages)
+		promptHash := util.HashPrompt(messagesText(chatRequest.Messages))
+		cacheCreation, cacheRead := util.RecordCache(promptHash, inputTokens)
+		setCacheHeaders(c, promptHash, cacheCreation, cacheRead)
+
+		mcpResponse, runErr := h.runResponsesWithMCP(c, chatRequest, bridge, policy)
+		if runErr != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{
+				"message": runErr.Error(),
+				"type":    "upstream_error",
+			}})
+			return
+		}
+		if mcpResponse.Timing != nil {
+			c.Header("X-TTFT-Ms", fmt.Sprintf("%d", mcpResponse.Timing.TTFTMs))
+			c.Header("X-Total-Time-Ms", fmt.Sprintf("%d", mcpResponse.Timing.TotalMs))
+		}
+		if responseRequest.Stream {
+			writeResponsesMCPStream(c, mcpResponse)
+		} else {
+			c.JSON(http.StatusOK, mcpResponse)
+		}
+		return
+	}
+
 	// Input token counting + prompt-cache simulation.
 	inputTokens := util.CountMessagesTokens(chatRequest.Messages)
 	promptHash := util.HashPrompt(messagesText(chatRequest.Messages))
@@ -251,9 +302,14 @@ func (h *Handler) startDuckDuckGoRequest(originalRequest officialtypes.APIReques
 
 	translatedRequest := duckgoConvert.ConvertAPIRequestWithOptions(originalRequest, reasoningEffort, webSearch)
 
-	// Debug: log request
-	reqJSON, _ := json.Marshal(translatedRequest)
-	log.Printf("[DEBUG] DuckDuckGo request: %s", truncateStr(string(reqJSON), 2000))
+	// Log request metadata only. MCP tool results and user prompts may contain
+	// private research material and must not be copied into routine application logs.
+	log.Printf("[DEBUG] DuckDuckGo request: model=%q messages=%d stream=%t web_search=%t",
+		translatedRequest.Model,
+		len(translatedRequest.Messages),
+		translatedRequest.Stream,
+		translatedRequest.Metadata.ToolChoice.WebSearch,
+	)
 
 	response, err := duckgo.POSTconversation(client, translatedRequest, token, proxyUrl)
 	if err != nil {

@@ -171,6 +171,75 @@ curl http://localhost:8080/v1/audio/speech \
 | `tinfoil/gpt-oss-120b` | 通用 | OpenAI GPT-1.5 120B |
 | `mistral-small` | 通用 | Mistral AI |
 
+
+
+### Remote MCP tools (Responses API)
+
+Remote MCP is available through `POST /v1/responses`. The gateway currently supports MCP Streamable HTTP transport and discovers tools through the official Go MCP SDK. It runs the model-led tool loop: the model chooses whether to call a tool, which permitted tool to call, and whether more research is needed. There is no fixed search sequence. `MCP_MAX_TOOL_CALLS` is an operational safety ceiling, not a planned search count.
+
+The upstream Duck.ai adapter currently represents system instructions as ordinary conversation text rather than a privileged system channel. Consequently, local registry validation, the tool allow-list, and approval settings are the actual execution boundary; never register write-capable or destructive tools for unattended research.
+
+The gateway does not accept arbitrary MCP destinations from a request. Register trusted endpoints in the server environment using `MCP_SERVERS`. The request's `server_label` and `server_url` must match a registered entry, and the effective tool set is the intersection of the registry allow-list and request `allowed_tools`.
+
+Example environment value (replace the placeholder with your own trusted endpoint):
+
+```json
+[
+  {
+    "server_label": "research",
+    "server_url": "https://YOUR-TRUSTED-MCP-HOST/mcp",
+    "allowed_tools": ["search", "fetch"],
+    "require_approval": "never"
+  }
+]
+```
+
+Keep authentication headers in the server-side registry, never in client requests or source control:
+
+```json
+{
+  "server_label": "research",
+  "server_url": "https://YOUR-TRUSTED-MCP-HOST/mcp",
+  "allowed_tools": ["search", "fetch"],
+  "require_approval": "never",
+  "headers": {
+    "Authorization": "Bearer YOUR_TOKEN"
+  }
+}
+```
+
+The corresponding Responses request uses the same registered endpoint and an explicit approval policy:
+
+```json
+{
+  "model": "gpt-6-luna",
+  "tools": [
+    {
+      "type": "mcp",
+      "server_label": "research",
+      "server_url": "https://YOUR-TRUSTED-MCP-HOST/mcp",
+      "allowed_tools": ["search", "fetch"],
+      "require_approval": "never"
+    }
+  ],
+  "input": "Research the requested question and cite the sources."
+}
+```
+
+**Execution safety:** tool execution is blocked unless `require_approval` is `never` in both the trusted server registry and the request. This first implementation does not yet implement the interactive approval-response round trip; therefore, use automatic execution only for explicitly allow-listed, read-only tools on servers you trust. Omitted or non-string approval policies are treated as approval-required. Registry policy cannot be weakened by the request.
+
+MCP endpoints must use HTTPS by default. `MCP_ALLOW_HTTP=true` is intended only for a trusted local deployment. The gateway rejects user-supplied endpoints that do not match the registry, restricts redirect behavior through the SDK transport, rejects reserved header overrides, and bounds call time and returned payload size.
+
+Supported environment variables:
+
+| Variable | Default | Purpose |
+|---|---:|---|
+| `MCP_SERVERS` | empty | Trusted MCP server registry (JSON array) |
+| `MCP_ALLOW_HTTP` | `false` | Permit HTTP only for trusted local deployments |
+| `MCP_MAX_TOOL_CALLS` | `64` | Maximum tool calls per response |
+| `MCP_TOOL_TIMEOUT_SECONDS` | `120` | Timeout for each MCP call |
+| `MCP_MAX_RESULT_BYTES` | `65536` | Maximum serialized tool-result size |
+
 ## 高级设置
 
 ### 环境变量

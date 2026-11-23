@@ -35,6 +35,9 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Download Go modules
+        run: go mod download
+
       - name: Build binary
         env:
           GOOS: ${{ matrix.goos }}
@@ -50,7 +53,7 @@ jobs:
           if [ "${GOOS}" = "windows" ]; then
             output="duck2api.exe"
           fi
-          go build -trimpath -ldflags="-s -w" -o "${artifact}/${output}" .
+          go build -mod=mod -trimpath -ldflags="-s -w" -o "${artifact}/${output}" .
           tar -czf "${artifact}.tar.gz" "${artifact}"
 
       - name: Upload artifact

@@ -184,12 +184,23 @@ type ResponseAPI struct {
 	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 }
 
+type MCPResponseTool struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	InputSchema any    `json:"input_schema,omitempty"`
+}
+
 type ResponseOutput struct {
-	ID      string                  `json:"id"`
-	Type    string                  `json:"type"`
-	Status  string                  `json:"status"`
-	Role    string                  `json:"role"`
-	Content []ResponseOutputContent `json:"content"`
+	ID          string                  `json:"id"`
+	Type        string                  `json:"type"`
+	Status      string                  `json:"status"`
+	Role        string                  `json:"role,omitempty"`
+	Content     []ResponseOutputContent `json:"content,omitempty"`
+	ServerLabel string                  `json:"server_label,omitempty"`
+	Tools       []MCPResponseTool       `json:"tools,omitempty"`
+	Name        string                  `json:"name,omitempty"`
+	Arguments   string                  `json:"arguments,omitempty"`
+	Output      string                  `json:"output,omitempty"`
 }
 
 type ResponseOutputContent struct {
