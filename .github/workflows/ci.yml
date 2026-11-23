@@ -49,3 +49,99 @@ jobs:
           MCP_SERVERS: >-
             [{"server_label":"aljam3","server_url":"https://aljam3.com/mcp","allow_read_only_tools":true,"require_approval":"never"},{"server_label":"shamela","server_url":"https://mcp.shamela.ws","allow_read_only_tools":true,"require_approval":"never"}]
         run: go test -mod=mod -v -count=1 ./internal/mcpbridge -run TestLiveReadOnlyResearchToolCalls
+
+      - name: End-to-end DuckAI Responses MCP orchestration
+        env:
+          SERVER_HOST: "127.0.0.1"
+          SERVER_PORT: "18083"
+          MCP_MAX_TOOL_CALLS: "8"
+          MCP_SERVERS: >-
+            [{"server_label":"aljam3","server_url":"https://aljam3.com/mcp","allow_read_only_tools":true,"require_approval":"never"},{"server_label":"shamela","server_url":"https://mcp.shamela.ws","allow_read_only_tools":true,"require_approval":"never"}]
+        shell: bash
+        run: |
+          set -euo pipefail
+          workdir="$(mktemp -d)"
+          go build -mod=mod -o "$workdir/duck2api" .
+          ./"$workdir/duck2api" >"$workdir/server.log" 2>&1 &
+          server_pid=$!
+          cleanup() {
+            kill "$server_pid" 2>/dev/null || true
+            wait "$server_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          ready=false
+          for attempt in $(seq 1 60); do
+            if curl --silent --show-error --fail http://127.0.0.1:18083/ping >/dev/null 2>&1; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != true ]; then
+            cat "$workdir/server.log"
+            echo "Duck2API did not start on the isolated preview port."
+            exit 1
+          fi
+
+          cat >"$workdir/request.json" <<'JSON'
+          {
+            "model": "gpt-6-luna",
+            "tool_choice": "required",
+            "tools": [
+              {
+                "type": "mcp",
+                "server_label": "aljam3",
+                "server_url": "https://aljam3.com/mcp",
+                "allowed_tools": {"read_only": true},
+                "require_approval": "never"
+              },
+              {
+                "type": "mcp",
+                "server_label": "shamela",
+                "server_url": "https://mcp.shamela.ws",
+                "allowed_tools": {"read_only": true},
+                "require_approval": "never"
+              }
+            ],
+            "input": "ابحث في الجامع والمكتبة الشاملة عن دلالة الأمر الوارد بعد الحظر، واعرض خلاصة موثقة بأقوال الأصوليين ومراجعها."
+          }
+          JSON
+
+          http_code="$(curl --silent --show-error --max-time 480 \
+            -o "$workdir/response.json" -w "%{http_code}" \
+            -H "Content-Type: application/json" \
+            --data-binary @"$workdir/request.json" \
+            http://127.0.0.1:18083/v1/responses || true)"
+
+          if [ "$http_code" != "200" ]; then
+            echo "Responses MCP orchestration returned HTTP $http_code"
+            cat "$workdir/response.json" 2>/dev/null || true
+            tail -n 80 "$workdir/server.log" || true
+            exit 1
+          fi
+
+          python3 - "$workdir/response.json" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as stream:
+              response = json.load(stream)
+
+          items = response.get("output", [])
+          calls = [item for item in items if item.get("type") == "mcp_call"]
+          completed = [item for item in calls if item.get("status") == "completed"]
+          failed = [item for item in calls if item.get("status") == "failed"]
+          messages = [item for item in items if item.get("type") == "message"]
+          final_text = response.get("output_text", "")
+
+          print("MCP tool calls:", len(calls))
+          print("Completed MCP calls:", len(completed))
+          print("Failed MCP calls:", len(failed))
+          print("Final answer characters:", len(final_text))
+
+          if not completed:
+              raise SystemExit("The model did not complete any live MCP tool call.")
+          if not final_text.strip() or not messages:
+              raise SystemExit("The Responses API did not return a final assistant message.")
+          PY
