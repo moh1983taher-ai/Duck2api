@@ -1,6 +1,9 @@
 package mcpbridge
 
-import "testing"
+import (
+	"net/http"
+	"testing"
+)
 
 func TestParseRequestToolsDefaultsToApprovalRequired(t *testing.T) {
 	tools := []any{
@@ -99,5 +102,16 @@ func TestOmittedAllowedToolsUsesRegistryAllowList(t *testing.T) {
 	got := intersectTools([]string{"search", "fetch"}, nil)
 	if len(got) != 2 || got[0] != "search" || got[1] != "fetch" {
 		t.Fatalf("omitted allowed_tools should preserve configured tools: %#v", got)
+	}
+}
+
+func TestMCPHTTPClientDoesNotFollowRedirects(t *testing.T) {
+	client := newServerHTTPClient(map[string]string{"Authorization": "Bearer test"})
+	if client.CheckRedirect == nil {
+		t.Fatal("MCP HTTP client must explicitly control redirect behavior")
+	}
+	err := client.CheckRedirect(&http.Request{}, nil)
+	if err != http.ErrUseLastResponse {
+		t.Fatalf("expected redirects to be blocked, got %v", err)
 	}
 }

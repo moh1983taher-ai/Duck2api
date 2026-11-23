@@ -4,6 +4,7 @@ import (
 	duckgoConvert "aurora/conversion/requests/duckgo"
 	"aurora/httpclient/bogdanfinn"
 	"aurora/internal/duckgo"
+	"aurora/internal/mcpbridge"
 	"aurora/internal/proxys"
 	duckgotypes "aurora/typings/duckgo"
 	officialtypes "aurora/typings/official"
@@ -307,7 +308,7 @@ func (h *Handler) startDuckDuckGoRequest(originalRequest officialtypes.APIReques
 	log.Printf("[DEBUG] DuckDuckGo request: model=%q messages=%d stream=%t web_search=%t",
 		translatedRequest.Model,
 		len(translatedRequest.Messages),
-		translatedRequest.Stream,
+		originalRequest.Stream,
 		translatedRequest.Metadata.ToolChoice.WebSearch,
 	)
 

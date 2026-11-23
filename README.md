@@ -228,7 +228,7 @@ The corresponding Responses request uses the same registered endpoint and an exp
 
 **Execution safety:** tool execution is blocked unless `require_approval` is `never` in both the trusted server registry and the request. This first implementation does not yet implement the interactive approval-response round trip; therefore, use automatic execution only for explicitly allow-listed, read-only tools on servers you trust. Omitted or non-string approval policies are treated as approval-required. Registry policy cannot be weakened by the request.
 
-MCP endpoints must use HTTPS by default. `MCP_ALLOW_HTTP=true` is intended only for a trusted local deployment. The gateway rejects user-supplied endpoints that do not match the registry, restricts redirect behavior through the SDK transport, rejects reserved header overrides, and bounds call time and returned payload size.
+MCP endpoints must use HTTPS by default. `MCP_ALLOW_HTTP=true` is intended only for a trusted local deployment. The gateway rejects user-supplied endpoints that do not match the registry, does not follow HTTP redirects (preventing registry credentials from being forwarded to another origin), rejects reserved header overrides, and bounds call time and returned payload size.
 
 Supported environment variables:
 

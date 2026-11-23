@@ -404,7 +404,13 @@ func newServerHTTPClient(headers map[string]string) *http.Client {
 	for name, value := range headers {
 		headerValues.Set(name, value)
 	}
-	return &http.Client{Transport: &headerTransport{base: base, headers: headerValues}}
+	return &http.Client{
+		Transport: &headerTransport{base: base, headers: headerValues},
+		// Never forward registry credentials through an HTTP redirect to another origin.
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 }
 
 func (b *Bridge) Descriptors() []ServerDescriptor {
