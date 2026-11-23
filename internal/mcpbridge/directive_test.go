@@ -48,3 +48,31 @@ func TestParseDirectiveRejectsTrailingJSON(t *testing.T) {
 		t.Fatal("expected trailing JSON data to be rejected")
 	}
 }
+
+
+func TestParseDirectiveCallAllowsSurroundingModelChatter(t *testing.T) {
+	got, err := ParseDirective("I will search the source first.\n```xml\n<mcp_call>{\"server_label\":\"aljam3\",\"tool_name\":\"search\",\"arguments\":{\"q\":\"test\"}}</mcp_call>\n```")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Kind != "call" || got.ServerLabel != "aljam3" || got.ToolName != "search" {
+		t.Fatalf("unexpected directive: %+v", got)
+	}
+}
+
+func TestParseDirectiveRejectsMultipleControlBlocks(t *testing.T) {
+	_, err := ParseDirective(
+		`<mcp_call>{"server_label":"aljam3","tool_name":"search","arguments":{}}</mcp_call>
+<mcp_call>{"server_label":"shamela","tool_name":"shamela_find","arguments":{}}</mcp_call>`,
+	)
+	if err == nil {
+		t.Fatal("expected duplicate call blocks to be rejected")
+	}
+}
+
+func TestParseDirectiveRejectsUnclosedControlBlock(t *testing.T) {
+	_, err := ParseDirective(`<mcp_call>{"server_label":"aljam3","tool_name":"search","arguments":{}}`)
+	if err == nil {
+		t.Fatal("expected unclosed call block to be rejected")
+	}
+}
