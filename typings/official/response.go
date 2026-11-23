@@ -228,6 +228,7 @@ type ResponseStreamEvent struct {
 	ContentIndex int             `json:"content_index,omitempty"`
 	Delta        string          `json:"delta,omitempty"`
 	Text         string          `json:"text,omitempty"`
+	Arguments    string          `json:"arguments,omitempty"`
 }
 
 func (event ResponseStreamEvent) String() string {
