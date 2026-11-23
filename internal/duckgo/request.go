@@ -97,7 +97,7 @@ func POSTconversation(client httpclient.AuroraHttpClient, request duckgotypes.Ap
 		// expired VQD token. Return it immediately instead of amplifying the
 		// limit with repeated requests. HTTP 418 may indicate a stale VQD;
 		// refresh once, then surface any subsequent response unchanged.
-		if response.StatusCode != http.StatusTeapot || vqdRefreshes >= 1 {
+		if !shouldRefreshVQD(response.StatusCode, vqdRefreshes) {
 			return response, nil
 		}
 
@@ -109,6 +109,12 @@ func POSTconversation(client httpclient.AuroraHttpClient, request duckgotypes.Ap
 		}
 		vqdRefreshes++
 	}
+}
+
+// shouldRefreshVQD permits one token refresh for the upstream's legacy
+// 418 response. Rate limits (429) are deliberately never retried here.
+func shouldRefreshVQD(statusCode int, refreshes int) bool {
+	return statusCode == http.StatusTeapot && refreshes == 0
 }
 
 func Handle_request_error(c *gin.Context, response *http.Response) bool {
