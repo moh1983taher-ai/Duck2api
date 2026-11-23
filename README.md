@@ -175,7 +175,7 @@ curl http://localhost:8080/v1/audio/speech \
 
 ### Remote MCP tools (Responses API)
 
-Remote MCP is available through `POST /v1/responses`. The gateway uses the official Go MCP SDK with Streamable HTTP, discovers the two official research sources already used by ResearchTools, and runs a model-led tool loop. The model chooses whether to call a tool, which permitted tool to call, and whether more research is needed. There is no fixed search sequence. `MCP_MAX_TOOL_CALLS` is an operational safety ceiling, not a planned search count.
+Remote MCP is available through `POST /v1/responses`. The gateway uses the official Go MCP SDK with Streamable HTTP first and legacy SSE fallback, discovers the two official research sources already used by ResearchTools, and runs a model-led tool loop. The model chooses whether to call a tool, which permitted tool to call, and whether more research is needed. There is no fixed search sequence. `MCP_MAX_TOOL_CALLS` is an operational safety ceiling, not a planned search count.
 
 The trusted built-in research endpoints are:
 

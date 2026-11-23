@@ -141,15 +141,23 @@ func Open(ctx context.Context, raw any) (*Bridge, bool, error) {
 			Version: "0.1.0",
 		}, nil)
 
-		connectCtx, cancelConnect := context.WithTimeout(ctx, 20*time.Second)
+		connectCtx, cancelConnect := context.WithTimeout(ctx, 45*time.Second)
 		session, connectErr := client.Connect(connectCtx, &mcp.StreamableClientTransport{
 			Endpoint:   cfg.ServerURL,
 			HTTPClient: httpClient,
 		}, nil)
+		if connectErr != nil {
+			// Keep compatibility with trusted MCP servers that still expose the
+			// legacy SSE transport. The same redirect-restricted HTTP client is used.
+			session, connectErr = client.Connect(connectCtx, &mcp.SSEClientTransport{
+				Endpoint:   cfg.ServerURL,
+				HTTPClient: httpClient,
+			}, nil)
+		}
 		cancelConnect()
 		if connectErr != nil {
 			bridge.Close()
-			return nil, true, fmt.Errorf("connect to MCP server %q: %w", cfg.ServerLabel, connectErr)
+			return nil, true, fmt.Errorf("connect to MCP server %q using Streamable HTTP or SSE: %w", cfg.ServerLabel, connectErr)
 		}
 
 		listCtx, cancelList := context.WithTimeout(ctx, 30*time.Second)
