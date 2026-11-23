@@ -35,3 +35,10 @@ jobs:
 
       - name: Build
         run: go build -mod=mod ./...
+
+      - name: Discover live Aljam3 and Shamela MCP catalogs (read-only)
+        env:
+          MCP_LIVE_DISCOVERY: "1"
+          MCP_SERVERS: >-
+            [{"server_label":"aljam3","server_url":"https://aljam3.com/mcp","allow_read_only_tools":true,"require_approval":"never"},{"server_label":"shamela","server_url":"https://mcp.shamela.ws","allow_read_only_tools":true,"require_approval":"never"}]
+        run: go test -mod=mod -v -count=1 ./internal/mcpbridge -run '^TestLiveResearchServerDiscovery

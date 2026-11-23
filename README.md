@@ -175,40 +175,37 @@ curl http://localhost:8080/v1/audio/speech \
 
 ### Remote MCP tools (Responses API)
 
-Remote MCP is available through `POST /v1/responses`. The gateway currently supports MCP Streamable HTTP transport and discovers tools through the official Go MCP SDK. For `stream: true`, it emits the Responses API MCP lifecycle events after the orchestration finishes; model reasoning and tool execution are buffered internally rather than streamed token-by-token. It runs the model-led tool loop: the model chooses whether to call a tool, which permitted tool to call, and whether more research is needed. There is no fixed search sequence. `MCP_MAX_TOOL_CALLS` is an operational safety ceiling, not a planned search count.
+Remote MCP is available through `POST /v1/responses`. The gateway uses the official Go MCP SDK with Streamable HTTP, discovers the two official research sources already used by ResearchTools, and runs a model-led tool loop. The model chooses whether to call a tool, which permitted tool to call, and whether more research is needed. There is no fixed search sequence. `MCP_MAX_TOOL_CALLS` is an operational safety ceiling, not a planned search count.
 
-The upstream Duck.ai adapter currently represents system instructions as ordinary conversation text rather than a privileged system channel. Consequently, local registry validation, the tool allow-list, and approval settings are the actual execution boundary; never register write-capable or destructive tools for unattended research.
+The trusted built-in research endpoints are:
 
-The gateway does not accept arbitrary MCP destinations from a request. Register trusted endpoints in the server environment using `MCP_SERVERS`. The request's `server_label` and `server_url` must match a registered entry, and the effective tool set is the intersection of the registry allow-list and request `allowed_tools`.
+| Server label | Source | MCP endpoint |
+|---|---|---|
+| `aljam3` | الجامع | `https://aljam3.com/mcp` |
+| `shamela` | المكتبة الشاملة | `https://mcp.shamela.ws` |
 
-Example environment value (replace the placeholder with your own trusted endpoint):
+The registry supports `allow_read_only_tools`. When enabled, the gateway dynamically exposes tools whose names match the read-oriented research policy and rejects names indicating write, delete, update, or destructive operations. Explicit server and request allow-lists are intersected. If the MCP server supplies annotations, an explicit non-read-only or destructive hint also rejects the tool. Annotations are treated as untrusted hints, not as the sole security boundary. This mirrors the read-only source policy of the existing ResearchTools MCP host.
+
+Default `MCP_SERVERS` configuration:
 
 ```json
 [
   {
-    "server_label": "research",
-    "server_url": "https://YOUR-TRUSTED-MCP-HOST/mcp",
-    "allowed_tools": ["search", "fetch"],
+    "server_label": "aljam3",
+    "server_url": "https://aljam3.com/mcp",
+    "allow_read_only_tools": true,
+    "require_approval": "never"
+  },
+  {
+    "server_label": "shamela",
+    "server_url": "https://mcp.shamela.ws",
+    "allow_read_only_tools": true,
     "require_approval": "never"
   }
 ]
 ```
 
-Keep authentication headers in the server-side registry, never in client requests or source control:
-
-```json
-{
-  "server_label": "research",
-  "server_url": "https://YOUR-TRUSTED-MCP-HOST/mcp",
-  "allowed_tools": ["search", "fetch"],
-  "require_approval": "never",
-  "headers": {
-    "Authorization": "Bearer YOUR_TOKEN"
-  }
-}
-```
-
-The corresponding Responses request uses the same registered endpoint and an explicit approval policy:
+The corresponding Responses request selects the sources and limits discovery to read-only tools:
 
 ```json
 {
@@ -216,25 +213,34 @@ The corresponding Responses request uses the same registered endpoint and an exp
   "tools": [
     {
       "type": "mcp",
-      "server_label": "research",
-      "server_url": "https://YOUR-TRUSTED-MCP-HOST/mcp",
-      "allowed_tools": ["search", "fetch"],
+      "server_label": "aljam3",
+      "server_url": "https://aljam3.com/mcp",
+      "allowed_tools": { "read_only": true },
+      "require_approval": "never"
+    },
+    {
+      "type": "mcp",
+      "server_label": "shamela",
+      "server_url": "https://mcp.shamela.ws",
+      "allowed_tools": { "read_only": true },
       "require_approval": "never"
     }
   ],
-  "input": "Research the requested question and cite the sources."
+  "input": "ابحث في المكتبتين عن المسألة، واستخرج الأقوال وأدلتها ومراجعها."
 }
 ```
 
-**Execution safety:** tool execution is blocked unless `require_approval` is `never` in both the trusted server registry and the request. This first implementation does not yet implement the interactive approval-response round trip; therefore, use automatic execution only for explicitly allow-listed, read-only tools on servers you trust. Omitted or non-string approval policies are treated as approval-required. Registry policy cannot be weakened by the request.
+**Execution safety:** tool execution is enabled only when `require_approval` is `never` in both the trusted server registry and the request. This first implementation does not yet implement the interactive approval-response round trip. Automatic execution is therefore limited to read-only tools admitted by the research-name policy; write and destructive tools are never exposed by this bridge. Authentication headers, when needed, belong only in the server-side registry and must never be placed in client requests or source control.
 
-MCP endpoints must use HTTPS by default. `MCP_ALLOW_HTTP=true` is intended only for a trusted local deployment. The gateway rejects user-supplied endpoints that do not match the registry, does not follow HTTP redirects (preventing registry credentials from being forwarded to another origin), rejects reserved header overrides, and bounds call time and returned payload size.
+MCP endpoints must use HTTPS by default. `MCP_ALLOW_HTTP=true` is intended only for a trusted local deployment. The gateway rejects request endpoints that do not match their registry entry, does not follow HTTP redirects, rejects reserved header overrides, and bounds call time and returned payload size.
+
+For `stream: true`, the gateway emits the Responses API MCP lifecycle events after orchestration finishes. Model reasoning and tool execution are buffered internally rather than streamed token-by-token.
 
 Supported environment variables:
 
 | Variable | Default | Purpose |
 |---|---:|---|
-| `MCP_SERVERS` | empty | Trusted MCP server registry (JSON array) |
+| `MCP_SERVERS` | two official research sources | Trusted MCP server registry (JSON array) |
 | `MCP_ALLOW_HTTP` | `false` | Permit HTTP only for trusted local deployments |
 | `MCP_MAX_TOOL_CALLS` | `64` | Maximum tool calls per response |
 | `MCP_TOOL_TIMEOUT_SECONDS` | `120` | Timeout for each MCP call |

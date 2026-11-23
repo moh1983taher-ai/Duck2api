@@ -17,17 +17,24 @@ import (
 )
 
 type ServerConfig struct {
-	ServerLabel  string            `json:"server_label"`
-	ServerURL    string            `json:"server_url"`
-	AllowedTools    []string          `json:"allowed_tools"`
-	RequireApproval string            `json:"require_approval,omitempty"`
-	Headers         map[string]string `json:"headers,omitempty"`
+	ServerLabel       string            `json:"server_label"`
+	ServerURL         string            `json:"server_url"`
+	AllowedTools      []string          `json:"allowed_tools,omitempty"`
+	AllowReadOnlyTools bool             `json:"allow_read_only_tools,omitempty"`
+	RequireApproval   string            `json:"require_approval,omitempty"`
+	Headers           map[string]string `json:"headers,omitempty"`
+}
+
+type AllowedToolsFilter struct {
+	Names          []string
+	NamesSpecified bool
+	ReadOnly       *bool
 }
 
 type RequestTool struct {
-	ServerLabel  string
-	ServerURL    string
-	AllowedTools    []string
+	ServerLabel     string
+	ServerURL       string
+	AllowedTools    AllowedToolsFilter
 	RequireApproval string
 }
 
@@ -72,7 +79,90 @@ type Bridge struct {
 	maxResultBytes int
 }
 
-var labelPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+var labelPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}package mcpbridge
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/url"
+	"os"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+)
+
+type ServerConfig struct {
+	ServerLabel       string            `json:"server_label"`
+	ServerURL         string            `json:"server_url"`
+	AllowedTools      []string          `json:"allowed_tools,omitempty"`
+	AllowReadOnlyTools bool             `json:"allow_read_only_tools,omitempty"`
+	RequireApproval   string            `json:"require_approval,omitempty"`
+	Headers           map[string]string `json:"headers,omitempty"`
+}
+
+type AllowedToolsFilter struct {
+	Names          []string
+	NamesSpecified bool
+	ReadOnly       *bool
+}
+
+type RequestTool struct {
+	ServerLabel     string
+	ServerURL       string
+	AllowedTools    AllowedToolsFilter
+	RequireApproval string
+}
+
+type ToolDescriptor struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	InputSchema any    `json:"input_schema,omitempty"`
+}
+
+type ServerDescriptor struct {
+	ServerLabel string           `json:"server_label"`
+	Tools       []ToolDescriptor `json:"tools"`
+}
+
+type Invocation struct {
+	ServerLabel string
+	ToolName    string
+	Arguments   map[string]any
+	Status      string
+	Output      json.RawMessage
+}
+
+type connectedServer struct {
+	config      ServerConfig
+	session     *mcp.ClientSession
+	tools       map[string]*mcp.Tool
+	autoExecute bool
+}
+
+type ToolChoicePolicy struct {
+	Disabled    bool
+	Required    bool
+	ServerLabel string
+	ToolName    string
+}
+
+type Bridge struct {
+	servers        map[string]*connectedServer
+	descriptors    []ServerDescriptor
+	maxToolCalls   int
+	toolTimeout    time.Duration
+	maxResultBytes int
+}
+
+)
+var deniedToolName = regexp.MustCompile(`(?i)(delete|remove|update|edit|write|create|upload|submit|send|publish|purchase|execute|admin|حذف|تعديل|كتابة|إنشاء|رفع|إرسال|نشر|شراء)`)
+var readToolName = regexp.MustCompile(`(?i)(search|find|query|lookup|get|fetch|read|open|list|retrieve|browse|catalog|book|page|text|بحث|استعلام|قراءة|جلب|استرجاع|عرض|فهرس)`)
 
 func HasMCPTools(raw any) bool {
 	_, enabled, _ := parseRequestTools(raw)
@@ -124,12 +214,6 @@ func Open(ctx context.Context, raw any) (*Bridge, bool, error) {
 			return nil, true, fmt.Errorf("server_url for MCP server %q does not match its trusted registry entry", requested.ServerLabel)
 		}
 
-		allowed := intersectTools(cfg.AllowedTools, requested.AllowedTools)
-		if len(allowed) == 0 {
-			bridge.Close()
-			return nil, true, fmt.Errorf("no tools are allowed for MCP server %q", requested.ServerLabel)
-		}
-
 		httpClient := newServerHTTPClient(cfg.Headers)
 		client := mcp.NewClient(&mcp.Implementation{
 			Name:    "duck2api",
@@ -162,15 +246,10 @@ func Open(ctx context.Context, raw any) (*Bridge, bool, error) {
 		}
 		cancelList()
 
-		allowedSet := make(map[string]bool, len(allowed))
-		for _, name := range allowed {
-			allowedSet[name] = true
-		}
-
 		var descriptors []ToolDescriptor
 		filteredTools := make(map[string]*mcp.Tool)
 		for name, tool := range toolMap {
-			if !allowedSet[name] {
+			if !toolAllowedByPolicy(cfg, requested.AllowedTools, tool) {
 				continue
 			}
 			filteredTools[name] = tool
@@ -183,7 +262,7 @@ func Open(ctx context.Context, raw any) (*Bridge, bool, error) {
 		if len(descriptors) == 0 {
 			_ = session.Close()
 			bridge.Close()
-			return nil, true, fmt.Errorf("MCP server %q exposes none of the tools allowed by its registry", cfg.ServerLabel)
+			return nil, true, fmt.Errorf("MCP server %q exposes no tools permitted by the read-only registry policy", cfg.ServerLabel)
 		}
 
 		sort.Slice(descriptors, func(i, j int) bool {
@@ -252,29 +331,71 @@ func parseRequestTools(raw any) ([]RequestTool, bool, error) {
 	return requests, len(requests) > 0, nil
 }
 
-func parseAllowedTools(raw any) ([]string, error) {
+func parseAllowedTools(raw any) (AllowedToolsFilter, error) {
+	filter := AllowedToolsFilter{}
 	if raw == nil {
-		return nil, nil
+		return filter, nil
 	}
-	var values []string
-	switch list := raw.(type) {
+
+	switch value := raw.(type) {
 	case []string:
-		values = append(make([]string, 0, len(list)), list...)
+		filter.Names = uniqueStrings(append([]string(nil), value...))
+		filter.NamesSpecified = true
 	case []any:
-		values = make([]string, 0, len(list))
-		for _, item := range list {
-			switch value := item.(type) {
-			case string:
-				values = append(values, value)
-			case map[string]any:
-				name, _ := value["name"].(string)
-				values = append(values, name)
-			default:
-				return nil, fmt.Errorf("tool names must be strings")
+		names, err := parseToolNames(value)
+		if err != nil {
+			return filter, err
+		}
+		filter.Names = names
+		filter.NamesSpecified = true
+	case map[string]any:
+		if rawReadOnly, exists := value["read_only"]; exists {
+			readOnly, ok := rawReadOnly.(bool)
+			if !ok {
+				return filter, fmt.Errorf("read_only must be a boolean")
+			}
+			filter.ReadOnly = &readOnly
+		}
+		if rawNames, exists := value["tool_names"]; exists {
+			list, ok := rawNames.([]any)
+			if !ok {
+				if typed, typedOK := rawNames.([]string); typedOK {
+					filter.Names = uniqueStrings(append([]string(nil), typed...))
+					filter.NamesSpecified = true
+				} else {
+					return filter, fmt.Errorf("tool_names must be an array of strings")
+				}
+			} else {
+				names, err := parseToolNames(list)
+				if err != nil {
+					return filter, err
+				}
+				filter.Names = names
+				filter.NamesSpecified = true
 			}
 		}
+		if filter.ReadOnly == nil && !filter.NamesSpecified {
+			return filter, fmt.Errorf("allowed_tools object must include read_only or tool_names")
+		}
 	default:
-		return nil, fmt.Errorf("expected an array of tool names")
+		return filter, fmt.Errorf("expected an array of tool names or a read_only/tool_names filter object")
+	}
+
+	return filter, nil
+}
+
+func parseToolNames(items []any) ([]string, error) {
+	values := make([]string, 0, len(items))
+	for _, item := range items {
+		switch value := item.(type) {
+		case string:
+			values = append(values, value)
+		case map[string]any:
+			name, _ := value["name"].(string)
+			values = append(values, name)
+		default:
+			return nil, fmt.Errorf("tool names must be strings")
+		}
 	}
 	for _, name := range values {
 		if strings.TrimSpace(name) == "" {
@@ -282,6 +403,61 @@ func parseAllowedTools(raw any) ([]string, error) {
 		}
 	}
 	return uniqueStrings(values), nil
+}
+
+func isAllowedReadOnlyTool(tool *mcp.Tool) bool {
+	if tool == nil || strings.TrimSpace(tool.Name) == "" {
+		return false
+	}
+	if deniedToolName.MatchString(tool.Name) || !readToolName.MatchString(tool.Name) {
+		return false
+	}
+	if tool.Annotations != nil {
+		if !tool.Annotations.ReadOnlyHint {
+			return false
+		}
+		if tool.Annotations.DestructiveHint != nil && *tool.Annotations.DestructiveHint {
+			return false
+		}
+	}
+	return true
+}
+
+func toolAllowedByPolicy(config ServerConfig, requested AllowedToolsFilter, tool *mcp.Tool) bool {
+	if !isAllowedReadOnlyTool(tool) {
+		return false
+	}
+
+	configured := false
+	for _, name := range config.AllowedTools {
+		if name == tool.Name {
+			configured = true
+			break
+		}
+	}
+	if !configured && config.AllowReadOnlyTools {
+		configured = true
+	}
+	if !configured {
+		return false
+	}
+
+	if requested.NamesSpecified {
+		requestedName := false
+		for _, name := range requested.Names {
+			if name == tool.Name {
+				requestedName = true
+				break
+			}
+		}
+		if !requestedName {
+			return false
+		}
+	}
+	if requested.ReadOnly != nil && *requested.ReadOnly && !isAllowedReadOnlyTool(tool) {
+		return false
+	}
+	return true
 }
 
 func loadRegistry() ([]ServerConfig, error) {
@@ -306,8 +482,8 @@ func validateServerConfig(cfg ServerConfig) error {
 	if _, err := normalizeEndpoint(cfg.ServerURL); err != nil {
 		return fmt.Errorf("invalid server_url for MCP server %q: %w", cfg.ServerLabel, err)
 	}
-	if len(cfg.AllowedTools) == 0 {
-		return fmt.Errorf("MCP server %q must declare at least one allowed_tools entry", cfg.ServerLabel)
+	if len(cfg.AllowedTools) == 0 && !cfg.AllowReadOnlyTools {
+		return fmt.Errorf("MCP server %q must declare allowed_tools or allow_read_only_tools=true", cfg.ServerLabel)
 	}
 	if cfg.RequireApproval != "" && cfg.RequireApproval != "always" && cfg.RequireApproval != "never" {
 		return fmt.Errorf("MCP server %q require_approval must be always or never", cfg.ServerLabel)
