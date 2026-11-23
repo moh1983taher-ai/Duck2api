@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - "feature/responses-remote-mcp"
+      - "fix/mcp-duckai-request-flow-20261123"
   workflow_dispatch:
 
 permissions:
