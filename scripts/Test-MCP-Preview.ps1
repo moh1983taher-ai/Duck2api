@@ -4,6 +4,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $headers = @{ "Content-Type" = "application/json" }
 if (-not [string]::IsNullOrWhiteSpace($env:Authorization)) {
     $headers["Authorization"] = "Bearer $($env:Authorization)"
@@ -28,10 +29,11 @@ $body = @{
             require_approval = "never"
         }
     )
-    input = "ابحث في الجامع والمكتبة الشاملة عن دلالة الأمر الوارد بعد الحظر، واعرض أقوال الأصوليين وأدلتهم ومراجعهم."
+    input = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("2KfYqNit2Ksg2YHZiiDYp9mE2KzYp9mF2Lkg2YjYp9mE2YXZg9iq2KjYqSDYp9mE2LTYp9mF2YTYqSDYudmGINiv2YTYp9mE2Kkg2KfZhNij2YXYsSDYp9mE2YjYp9ix2K8g2KjYudivINin2YTYrdi42LHYjCDZiNin2LnYsdi2INij2YLZiNin2YQg2KfZhNij2LXZiNmE2YrZitmGINmI2KPYr9mE2KrZh9mFINmI2YXYsdin2KzYudmH2YUu"))
 } | ConvertTo-Json -Depth 30
 
-$response = Invoke-RestMethod -Method Post -Uri "$BaseUrl/v1/responses" -Headers $headers -Body $body -TimeoutSec 480
+$requestBytes = [System.Text.Encoding]::UTF8.GetBytes($body)
+$response = Invoke-RestMethod -Method Post -Uri "$BaseUrl/v1/responses" -Headers $headers -ContentType "application/json; charset=utf-8" -Body $requestBytes -TimeoutSec 480
 $calls = @($response.output | Where-Object { $_.type -eq "mcp_call" })
 $completed = @($calls | Where-Object { $_.status -eq "completed" })
 if ($completed.Count -lt 1) {
