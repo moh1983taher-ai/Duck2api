@@ -23,18 +23,25 @@ func ParseDirective(output string) (Directive, error) {
 	const finalOpen = "<mcp_final>"
 	const finalClose = "</mcp_final>"
 
-	if strings.HasPrefix(trimmed, callOpen) {
-		end := strings.Index(trimmed, callClose)
-		if end < 0 || strings.TrimSpace(trimmed[end+len(callClose):]) != "" {
-			return Directive{}, fmt.Errorf("malformed MCP call control block")
-		}
-		payload := strings.TrimSpace(trimmed[len(callOpen):end])
+	callPayload, hasCall, err := extractControlPayload(trimmed, callOpen, callClose)
+	if err != nil {
+		return Directive{}, err
+	}
+	finalPayload, hasFinal, err := extractControlPayload(trimmed, finalOpen, finalClose)
+	if err != nil {
+		return Directive{}, err
+	}
+	if hasCall && hasFinal {
+		return Directive{}, fmt.Errorf("model output contains both MCP call and final control blocks")
+	}
+
+	if hasCall {
 		var call struct {
 			ServerLabel string         `json:"server_label"`
 			ToolName    string         `json:"tool_name"`
 			Arguments   map[string]any `json:"arguments"`
 		}
-		decoder := json.NewDecoder(strings.NewReader(payload))
+		decoder := json.NewDecoder(strings.NewReader(callPayload))
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&call); err != nil {
 			return Directive{}, fmt.Errorf("invalid MCP call JSON: %w", err)
@@ -58,14 +65,10 @@ func ParseDirective(output string) (Directive, error) {
 		}, nil
 	}
 
-	if strings.HasPrefix(trimmed, finalOpen) {
-		end := strings.Index(trimmed, finalClose)
-		if end < 0 || strings.TrimSpace(trimmed[end+len(finalClose):]) != "" {
-			return Directive{}, fmt.Errorf("malformed MCP final control block")
-		}
+	if hasFinal {
 		return Directive{
 			Kind: "final",
-			Text: strings.TrimSpace(trimmed[len(finalOpen):end]),
+			Text: strings.TrimSpace(finalPayload),
 			Raw:  trimmed,
 		}, nil
 	}
@@ -73,4 +76,25 @@ func ParseDirective(output string) (Directive, error) {
 	// Models that do not emit the optional wrapper remain usable: plain text is
 	// treated as a final answer, never as an executable tool request.
 	return Directive{Kind: "final", Text: trimmed, Raw: trimmed}, nil
+}
+
+// extractControlPayload accepts harmless prose or Markdown surrounding one
+// explicit control block. The payload itself remains strictly validated by
+// ParseDirective; duplicate, mismatched, or unclosed markers are rejected.
+func extractControlPayload(output, open, close string) (string, bool, error) {
+	openCount := strings.Count(output, open)
+	closeCount := strings.Count(output, close)
+	if openCount == 0 && closeCount == 0 {
+		return "", false, nil
+	}
+	if openCount != 1 || closeCount != 1 {
+		return "", false, fmt.Errorf("malformed MCP control block markers")
+	}
+	start := strings.Index(output, open)
+	payloadStart := start + len(open)
+	relativeEnd := strings.Index(output[payloadStart:], close)
+	if relativeEnd < 0 {
+		return "", false, fmt.Errorf("MCP control block is missing its closing marker")
+	}
+	return strings.TrimSpace(output[payloadStart : payloadStart+relativeEnd]), true, nil
 }
