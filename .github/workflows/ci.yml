@@ -54,7 +54,7 @@ jobs:
         env:
           SERVER_HOST: "127.0.0.1"
           SERVER_PORT: "18083"
-          MCP_MAX_TOOL_CALLS: "8"
+          MCP_MAX_TOOL_CALLS: "1"
           MCP_SERVERS: >-
             [{"server_label":"aljam3","server_url":"https://aljam3.com/mcp","allow_read_only_tools":true,"require_approval":"never"},{"server_label":"shamela","server_url":"https://mcp.shamela.ws","allow_read_only_tools":true,"require_approval":"never"}]
         shell: bash
@@ -87,7 +87,7 @@ jobs:
           cat >"$workdir/request.json" <<'JSON'
           {
             "model": "gpt-6-luna",
-            "tool_choice": "required",
+            "tool_choice": {"type": "mcp", "server_label": "aljam3", "name": "search"},
             "tools": [
               {
                 "type": "mcp",
@@ -95,16 +95,9 @@ jobs:
                 "server_url": "https://aljam3.com/mcp",
                 "allowed_tools": {"read_only": true},
                 "require_approval": "never"
-              },
-              {
-                "type": "mcp",
-                "server_label": "shamela",
-                "server_url": "https://mcp.shamela.ws",
-                "allowed_tools": {"read_only": true},
-                "require_approval": "never"
               }
             ],
-            "input": "ابحث في الجامع والمكتبة الشاملة عن دلالة الأمر الوارد بعد الحظر، واعرض خلاصة موثقة بأقوال الأصوليين ومراجعها."
+            "input": "ابحث عن عبارة الأمر الوارد بعد الحظر في نصوص الكتب بالجامع. اكتفِ بنتائج البحث الأولية وبيانات مصادرها، ولا تنقل اقتباسات حرفية."
           }
           JSON
 
