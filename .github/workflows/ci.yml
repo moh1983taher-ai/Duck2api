@@ -110,7 +110,7 @@ jobs:
           if [ "$http_code" != "200" ]; then
             if [ "$http_code" = "502" ] &&
               grep -Fq '[MCP] server="aljam3" tool="search" status="completed"' "$workdir/server.log" &&
-              { grep -Fq '429 Too Many Requests' "$workdir/response.json" || grep -Fq 'no x-vqd-hash-1 token' "$workdir/response.json"; }; then
+              { grep -Fq '429 Too Many Requests' "$workdir/response.json" || grep -Fq 'no x-vqd-hash-1 token' "$workdir/response.json" || grep -Fq "418 I'm a teapot" "$workdir/response.json"; }; then
               echo "::warning::Duck.ai blocked the follow-up model generation after a successful Aljam3 MCP call (rate limit or missing VQD token). The local model end-to-end test remains necessary."
               tail -n 40 "$workdir/server.log" || true
               exit 0
