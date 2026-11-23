@@ -17,12 +17,12 @@ import (
 )
 
 type ServerConfig struct {
-	ServerLabel       string            `json:"server_label"`
-	ServerURL         string            `json:"server_url"`
-	AllowedTools      []string          `json:"allowed_tools,omitempty"`
-	AllowReadOnlyTools bool             `json:"allow_read_only_tools,omitempty"`
-	RequireApproval   string            `json:"require_approval,omitempty"`
-	Headers           map[string]string `json:"headers,omitempty"`
+	ServerLabel        string            `json:"server_label"`
+	ServerURL          string            `json:"server_url"`
+	AllowedTools       []string          `json:"allowed_tools,omitempty"`
+	AllowReadOnlyTools bool              `json:"allow_read_only_tools,omitempty"`
+	RequireApproval    string            `json:"require_approval,omitempty"`
+	Headers            map[string]string `json:"headers,omitempty"`
 }
 
 type AllowedToolsFilter struct {
@@ -79,90 +79,11 @@ type Bridge struct {
 	maxResultBytes int
 }
 
-var labelPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}package mcpbridge
-
-import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"net/url"
-	"os"
-	"regexp"
-	"sort"
-	"strconv"
-	"strings"
-	"time"
-
-	"github.com/modelcontextprotocol/go-sdk/mcp"
+var (
+	labelPattern   = regexp.MustCompile("^[A-Za-z0-9_-]{1,64}$")
+	deniedToolName = regexp.MustCompile("(?i)(delete|remove|update|edit|write|create|upload|submit|send|publish|purchase|execute|admin|حذف|تعديل|كتابة|إنشاء|رفع|إرسال|نشر|شراء)")
+	readToolName   = regexp.MustCompile("(?i)(search|find|query|lookup|get|fetch|read|open|list|retrieve|browse|catalog|book|page|text|بحث|استعلام|قراءة|جلب|استرجاع|عرض|فهرس)")
 )
-
-type ServerConfig struct {
-	ServerLabel       string            `json:"server_label"`
-	ServerURL         string            `json:"server_url"`
-	AllowedTools      []string          `json:"allowed_tools,omitempty"`
-	AllowReadOnlyTools bool             `json:"allow_read_only_tools,omitempty"`
-	RequireApproval   string            `json:"require_approval,omitempty"`
-	Headers           map[string]string `json:"headers,omitempty"`
-}
-
-type AllowedToolsFilter struct {
-	Names          []string
-	NamesSpecified bool
-	ReadOnly       *bool
-}
-
-type RequestTool struct {
-	ServerLabel     string
-	ServerURL       string
-	AllowedTools    AllowedToolsFilter
-	RequireApproval string
-}
-
-type ToolDescriptor struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	InputSchema any    `json:"input_schema,omitempty"`
-}
-
-type ServerDescriptor struct {
-	ServerLabel string           `json:"server_label"`
-	Tools       []ToolDescriptor `json:"tools"`
-}
-
-type Invocation struct {
-	ServerLabel string
-	ToolName    string
-	Arguments   map[string]any
-	Status      string
-	Output      json.RawMessage
-}
-
-type connectedServer struct {
-	config      ServerConfig
-	session     *mcp.ClientSession
-	tools       map[string]*mcp.Tool
-	autoExecute bool
-}
-
-type ToolChoicePolicy struct {
-	Disabled    bool
-	Required    bool
-	ServerLabel string
-	ToolName    string
-}
-
-type Bridge struct {
-	servers        map[string]*connectedServer
-	descriptors    []ServerDescriptor
-	maxToolCalls   int
-	toolTimeout    time.Duration
-	maxResultBytes int
-}
-
-)
-var deniedToolName = regexp.MustCompile(`(?i)(delete|remove|update|edit|write|create|upload|submit|send|publish|purchase|execute|admin|حذف|تعديل|كتابة|إنشاء|رفع|إرسال|نشر|شراء)`)
-var readToolName = regexp.MustCompile(`(?i)(search|find|query|lookup|get|fetch|read|open|list|retrieve|browse|catalog|book|page|text|بحث|استعلام|قراءة|جلب|استرجاع|عرض|فهرس)`)
 
 func HasMCPTools(raw any) bool {
 	_, enabled, _ := parseRequestTools(raw)
@@ -357,21 +278,19 @@ func parseAllowedTools(raw any) (AllowedToolsFilter, error) {
 			filter.ReadOnly = &readOnly
 		}
 		if rawNames, exists := value["tool_names"]; exists {
-			list, ok := rawNames.([]any)
-			if !ok {
-				if typed, typedOK := rawNames.([]string); typedOK {
-					filter.Names = uniqueStrings(append([]string(nil), typed...))
-					filter.NamesSpecified = true
-				} else {
-					return filter, fmt.Errorf("tool_names must be an array of strings")
-				}
-			} else {
+			switch list := rawNames.(type) {
+			case []string:
+				filter.Names = uniqueStrings(append([]string(nil), list...))
+				filter.NamesSpecified = true
+			case []any:
 				names, err := parseToolNames(list)
 				if err != nil {
 					return filter, err
 				}
 				filter.Names = names
 				filter.NamesSpecified = true
+			default:
+				return filter, fmt.Errorf("tool_names must be an array of strings")
 			}
 		}
 		if filter.ReadOnly == nil && !filter.NamesSpecified {
@@ -453,9 +372,6 @@ func toolAllowedByPolicy(config ServerConfig, requested AllowedToolsFilter, tool
 		if !requestedName {
 			return false
 		}
-	}
-	if requested.ReadOnly != nil && *requested.ReadOnly && !isAllowedReadOnlyTool(tool) {
-		return false
 	}
 	return true
 }
@@ -580,13 +496,7 @@ func newServerHTTPClient(headers map[string]string) *http.Client {
 	for name, value := range headers {
 		headerValues.Set(name, value)
 	}
-	return &http.Client{
-		Transport: &headerTransport{base: base, headers: headerValues},
-		// Never forward registry credentials through an HTTP redirect to another origin.
-		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	return &http.Client{Transport: &headerTransport{base: base, headers: headerValues}}
 }
 
 func (b *Bridge) Descriptors() []ServerDescriptor {
