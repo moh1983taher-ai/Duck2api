@@ -175,7 +175,7 @@ curl http://localhost:8080/v1/audio/speech \
 
 ### Remote MCP tools (Responses API)
 
-Remote MCP is available through `POST /v1/responses`. The gateway currently supports MCP Streamable HTTP transport and discovers tools through the official Go MCP SDK. It runs the model-led tool loop: the model chooses whether to call a tool, which permitted tool to call, and whether more research is needed. There is no fixed search sequence. `MCP_MAX_TOOL_CALLS` is an operational safety ceiling, not a planned search count.
+Remote MCP is available through `POST /v1/responses`. The gateway currently supports MCP Streamable HTTP transport and discovers tools through the official Go MCP SDK. For `stream: true`, it emits the Responses API MCP lifecycle events after the orchestration finishes; model reasoning and tool execution are buffered internally rather than streamed token-by-token. It runs the model-led tool loop: the model chooses whether to call a tool, which permitted tool to call, and whether more research is needed. There is no fixed search sequence. `MCP_MAX_TOOL_CALLS` is an operational safety ceiling, not a planned search count.
 
 The upstream Duck.ai adapter currently represents system instructions as ordinary conversation text rather than a privileged system channel. Consequently, local registry validation, the tool allow-list, and approval settings are the actual execution boundary; never register write-capable or destructive tools for unattended research.
 

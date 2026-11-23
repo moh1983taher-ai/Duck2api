@@ -234,47 +234,90 @@ func writeResponsesMCPStream(c *gin.Context, completed officialtypes.ResponseAPI
 		pending.Status = "in_progress"
 		emit(officialtypes.ResponseStreamEvent{
 			Type:        "response.output_item.added",
-			OutputIndex: index,
+			OutputIndex: intPointer(index),
 			Item:        &pending,
 		})
 
-		if item.Type == "message" && len(item.Content) > 0 {
-			textPart := item.Content[0]
+		switch item.Type {
+		case "mcp_list_tools":
 			emit(officialtypes.ResponseStreamEvent{
-				Type:         "response.content_part.added",
-				ItemID:       item.ID,
-				OutputIndex:  index,
-				ContentIndex: 0,
-				Part:         officialtypes.ResponseOutputContent{Type: "output_text", Text: "", Annotations: []any{}},
+				Type:        "response.mcp_list_tools.in_progress",
+				ItemID:      item.ID,
+				OutputIndex: intPointer(index),
 			})
-			if textPart.Text != "" {
-				emit(officialtypes.ResponseStreamEvent{
-					Type:         "response.output_text.delta",
-					ItemID:       item.ID,
-					OutputIndex:  index,
-					ContentIndex: 0,
-					Delta:        textPart.Text,
-				})
+			emit(officialtypes.ResponseStreamEvent{
+				Type:        "response.mcp_list_tools.completed",
+				ItemID:      item.ID,
+				OutputIndex: intPointer(index),
+			})
+
+		case "mcp_call":
+			emit(officialtypes.ResponseStreamEvent{
+				Type:        "response.mcp_call_arguments.delta",
+				ItemID:      item.ID,
+				OutputIndex: intPointer(index),
+				Delta:       item.Arguments,
+			})
+			emit(officialtypes.ResponseStreamEvent{
+				Type:        "response.mcp_call_arguments.done",
+				ItemID:      item.ID,
+				OutputIndex: intPointer(index),
+				Arguments:   item.Arguments,
+			})
+			emit(officialtypes.ResponseStreamEvent{
+				Type:        "response.mcp_call.in_progress",
+				ItemID:      item.ID,
+				OutputIndex: intPointer(index),
+			})
+			eventType := "response.mcp_call.completed"
+			if item.Status == "failed" {
+				eventType = "response.mcp_call.failed"
 			}
 			emit(officialtypes.ResponseStreamEvent{
-				Type:         "response.output_text.done",
-				ItemID:       item.ID,
-				OutputIndex:  index,
-				ContentIndex: 0,
-				Text:         textPart.Text,
+				Type:        eventType,
+				ItemID:      item.ID,
+				OutputIndex: intPointer(index),
 			})
-			emit(officialtypes.ResponseStreamEvent{
-				Type:         "response.content_part.done",
-				ItemID:       item.ID,
-				OutputIndex:  index,
-				ContentIndex: 0,
-				Part:         textPart,
-			})
+
+		case "message":
+			if len(item.Content) > 0 {
+				textPart := item.Content[0]
+				emit(officialtypes.ResponseStreamEvent{
+					Type:         "response.content_part.added",
+					ItemID:       item.ID,
+					OutputIndex: intPointer(index),
+					ContentIndex: 0,
+					Part:         officialtypes.ResponseOutputContent{Type: "output_text", Text: "", Annotations: []any{}},
+				})
+				if textPart.Text != "" {
+					emit(officialtypes.ResponseStreamEvent{
+						Type:         "response.output_text.delta",
+						ItemID:       item.ID,
+						OutputIndex: intPointer(index),
+						ContentIndex: 0,
+						Delta:        textPart.Text,
+					})
+				}
+				emit(officialtypes.ResponseStreamEvent{
+					Type:         "response.output_text.done",
+					ItemID:       item.ID,
+					OutputIndex: intPointer(index),
+					ContentIndex: 0,
+					Text:         textPart.Text,
+				})
+				emit(officialtypes.ResponseStreamEvent{
+					Type:         "response.content_part.done",
+					ItemID:       item.ID,
+					OutputIndex: intPointer(index),
+					ContentIndex: 0,
+					Part:         textPart,
+				})
+			}
 		}
 
 		emit(officialtypes.ResponseStreamEvent{
 			Type:        "response.output_item.done",
-			OutputIndex: index,
+			OutputIndex: intPointer(index),
 			Item:        &item,
 		})
 	}
@@ -284,4 +327,8 @@ func writeResponsesMCPStream(c *gin.Context, completed officialtypes.ResponseAPI
 		Response: &completed,
 	})
 	c.Writer.Flush()
+}
+
+func intPointer(value int) *int {
+	return &value
 }

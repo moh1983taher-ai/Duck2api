@@ -346,7 +346,6 @@ func handleResponsesStream(c *gin.Context, body io.ReadCloser, model string, sta
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
 
-	// Pre-build the response shells.
 	inProgress := officialtypes.NewResponseAPIWithModel("", model)
 	inProgress.Status = "in_progress"
 	inProgress.Output = []officialtypes.ResponseOutput{}
@@ -360,12 +359,16 @@ func handleResponsesStream(c *gin.Context, body io.ReadCloser, model string, sta
 		Annotations: []interface{}{},
 	}
 
-	// response.created
-	writeRespEvent(c, officialtypes.ResponseStreamEvent{Type: "response.created", Sequence: 1, Response: &inProgress})
-	// response.output_item.added
-	writeRespEvent(c, officialtypes.ResponseStreamEvent{Type: "response.output_item.added", Sequence: 2, OutputIndex: 0, Item: &output})
-	// response.content_part.added
-	writeRespEvent(c, officialtypes.ResponseStreamEvent{Type: "response.content_part.added", Sequence: 3, ItemID: output.ID, OutputIndex: 0, ContentIndex: 0, Part: part})
+	sequence := 0
+	emit := func(event officialtypes.ResponseStreamEvent) {
+		sequence++
+		event.Sequence = sequence
+		writeRespEvent(c, event)
+	}
+
+	emit(officialtypes.ResponseStreamEvent{Type: "response.created", Response: &inProgress})
+	emit(officialtypes.ResponseStreamEvent{Type: "response.output_item.added", OutputIndex: intPointer(0), Item: &output})
+	emit(officialtypes.ResponseStreamEvent{Type: "response.content_part.added", ItemID: output.ID, OutputIndex: intPointer(0), ContentIndex: 0, Part: part})
 
 	var sb strings.Builder
 	var firstTokenSet bool
@@ -382,7 +385,7 @@ func handleResponsesStream(c *gin.Context, body io.ReadCloser, model string, sta
 		if len(line) < 6 {
 			continue
 		}
-		line = line[6:] // strip "data: "
+		line = line[6:]
 		if strings.HasPrefix(line, "[DONE]") {
 			continue
 		}
@@ -390,10 +393,7 @@ func handleResponsesStream(c *gin.Context, body io.ReadCloser, model string, sta
 		var delta struct {
 			Message string `json:"message"`
 		}
-		if err := json.Unmarshal([]byte(line), &delta); err != nil {
-			continue
-		}
-		if delta.Message == "" {
+		if err := json.Unmarshal([]byte(line), &delta); err != nil || delta.Message == "" {
 			continue
 		}
 
@@ -403,12 +403,10 @@ func handleResponsesStream(c *gin.Context, body io.ReadCloser, model string, sta
 			ttftMs = time.Since(stats.Start).Milliseconds()
 		}
 
-		// response.output_text.delta
-		writeRespEvent(c, officialtypes.ResponseStreamEvent{
+		emit(officialtypes.ResponseStreamEvent{
 			Type:         "response.output_text.delta",
-			Sequence:     0,
 			ItemID:       output.ID,
-			OutputIndex:  0,
+			OutputIndex:  intPointer(0),
 			ContentIndex: 0,
 			Delta:        delta.Message,
 		})
@@ -425,14 +423,10 @@ func handleResponsesStream(c *gin.Context, body io.ReadCloser, model string, sta
 	}
 	completed := officialtypes.NewResponseAPIFull(fullText, model, int64(stats.PromptTokens), int64(outputTokens), int64(stats.CachedTokens), ttftMs, totalMs, stats.Effort)
 
-	// response.output_text.done
-	writeRespEvent(c, officialtypes.ResponseStreamEvent{Type: "response.output_text.done", Sequence: 0, ItemID: output.ID, OutputIndex: 0, ContentIndex: 0, Text: fullText})
-	// response.content_part.done
-	writeRespEvent(c, officialtypes.ResponseStreamEvent{Type: "response.content_part.done", Sequence: 0, ItemID: output.ID, OutputIndex: 0, ContentIndex: 0, Part: donePart})
-	// response.output_item.done
-	writeRespEvent(c, officialtypes.ResponseStreamEvent{Type: "response.output_item.done", Sequence: 0, OutputIndex: 0, Item: &completed.Output[0]})
-	// response.completed
-	writeRespEvent(c, officialtypes.ResponseStreamEvent{Type: "response.completed", Sequence: 0, Response: &completed})
+	emit(officialtypes.ResponseStreamEvent{Type: "response.output_text.done", ItemID: output.ID, OutputIndex: intPointer(0), ContentIndex: 0, Text: fullText})
+	emit(officialtypes.ResponseStreamEvent{Type: "response.content_part.done", ItemID: output.ID, OutputIndex: intPointer(0), ContentIndex: 0, Part: donePart})
+	emit(officialtypes.ResponseStreamEvent{Type: "response.output_item.done", OutputIndex: intPointer(0), Item: &completed.Output[0]})
+	emit(officialtypes.ResponseStreamEvent{Type: "response.completed", Response: &completed})
 	c.Writer.Flush()
 
 	return responsesStreamResult{

@@ -224,7 +224,7 @@ type ResponseStreamEvent struct {
 	Item         *ResponseOutput `json:"item,omitempty"`
 	ItemID       string          `json:"item_id,omitempty"`
 	Part         any             `json:"part,omitempty"`
-	OutputIndex  int             `json:"output_index,omitempty"`
+	OutputIndex  *int            `json:"output_index,omitempty"`
 	ContentIndex int             `json:"content_index,omitempty"`
 	Delta        string          `json:"delta,omitempty"`
 	Text         string          `json:"text,omitempty"`
